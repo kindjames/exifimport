@@ -1,4 +1,5 @@
 const _ = require('lodash')
+const { filesize } = require('filesize')
 const cliProgress = require('cli-progress')
 const { pipeline } = require('stream/promises')
 const FileFinder = require('./FileFinder')
@@ -30,13 +31,16 @@ module.exports = async function main({
       100,
       0,
       { label: 'overall' },
-      { format: '{label} [{bar}] {percentage}% | ETA: {eta}s | {total}' }
+      {
+        format:
+          '{label} [{bar}] {percentage}% | ETA: {eta}s | {total} files {data}',
+      }
     ),
     written: multibar.create(
       100,
       0,
       { label: 'current' },
-      { format: '{label} [{bar}] {percentage}% | ETA: {eta}s | {total}' }
+      { format: '{label} [{bar}] {percentage}% | ETA: {eta}s | {data}' }
     ),
   }
 
@@ -44,13 +48,14 @@ module.exports = async function main({
     total.files += 1
     total.data += fileSize
     bars.total.setTotal(total.files)
+    bars.total.update({ data: filesize(total.data) })
   }
 
   function onFileChunkWrite(payload) {
     if (_.isUndefined(payload)) return // complete
     if (_.isError(payload)) throw `fatal: ${payload}`
     const { value, total } = payload
-    bars.written.update(value, payload)
+    bars.written.update(value, { ...payload, data: filesize(total) })
     if (value < total) bars.written.setTotal(total)
     else bars.total.increment()
   }

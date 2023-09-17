@@ -10,22 +10,28 @@ module.exports = async () => {
       source: {
         type: 'string',
         alias: ['src', 's'],
-        description: '<DESCRIPTION>',
+        description: 'Location to search for files',
         default: process.cwd(),
         required: true,
       },
       destination: {
         type: 'string',
         alias: ['dest', 'd'],
-        description: '<DESCRIPTION>',
+        description: 'Where the files will be transferred to',
         default: config.destination,
         required: true,
       },
       extensions: {
         type: 'array',
-        description: '<DESCRIPTION>',
+        description: 'File types to search for and copy',
         choices: extensions,
         default: extensions,
+        required: true,
+      },
+      overwrite: {
+        type: 'bool',
+        description: 'Overwrite a file if it already exists',
+        default: false,
         required: true,
       },
     })
