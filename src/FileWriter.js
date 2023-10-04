@@ -40,8 +40,8 @@ module.exports = class FileWriter extends Writable {
       readStream.on('data', async (chunk) => {
         current += chunk.length
         this.onFileChunkWrite({
-          value: current,
-          total: fileSize,
+          current,
+          fileSize,
           filename,
           camera,
           lens,

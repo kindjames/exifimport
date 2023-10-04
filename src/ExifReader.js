@@ -1,8 +1,7 @@
+const _ = require('lodash')
 const moment = require('moment')
-const fs = require('fs/promises')
 const { Transform } = require('stream')
 const { ExifTool } = require('exiftool-vendored')
-const _ = require('lodash')
 
 const formatString = 'YYYY:MM:DD HH:mm:ss'
 

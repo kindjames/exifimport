@@ -1,4 +1,5 @@
 const _ = require('lodash')
+const moment = require('moment')
 const { filesize } = require('filesize')
 const cliProgress = require('cli-progress')
 const { pipeline } = require('stream/promises')
@@ -33,14 +34,17 @@ module.exports = async function main({
       { label: 'overall' },
       {
         format:
-          '{label} [{bar}] {percentage}% | ETA: {eta}s | {total} files {data}',
+          '{label} [{bar}] {percentage}% | eta {eta}s | {total} files {totalSizeReadable} {speed}',
       }
     ),
-    written: multibar.create(
+    file: multibar.create(
       100,
       0,
       { label: 'current' },
-      { format: '{label} [{bar}] {percentage}% | ETA: {eta}s | {data}' }
+      {
+        format:
+          '{label} [{bar}] {percentage}% | eta {eta}s | {fileSizeReadable} {speed}',
+      }
     ),
   }
 
@@ -48,15 +52,24 @@ module.exports = async function main({
     total.files += 1
     total.data += fileSize
     bars.total.setTotal(total.files)
-    bars.total.update({ data: filesize(total.data) })
+    bars.total.update({ totalSizeReadable: filesize(total.data) })
   }
 
   function onFileChunkWrite(payload) {
-    if (_.isUndefined(payload)) return // complete
-    if (_.isError(payload)) throw `fatal: ${payload}`
-    const { value, total } = payload
-    bars.written.update(value, { ...payload, data: filesize(total) })
-    if (value < total) bars.written.setTotal(total)
+    if (_.isUndefined(payload)) return bars.file.stop() // finished
+    if (_.isError(payload)) throw `fatal: ${payload}` // error
+    const { current, fileSize, filename, date } = payload
+    // const duration = moment.utc(bars.total.startTime)
+    bars.total.update({
+      label: date.format('YYYY-MM-DD'),
+      speed: '',
+    })
+    bars.file.update(current, {
+      ...payload,
+      label: filename,
+      fileSizeReadable: filesize(fileSize),
+    })
+    if (current < fileSize) bars.file.setTotal(fileSize)
     else bars.total.increment()
   }
 
