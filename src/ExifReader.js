@@ -11,10 +11,8 @@ module.exports = class ExifReader extends Transform {
     this.exiftool = new ExifTool({ taskTimeoutMillis: 5000 })
   }
 
-  getDate(exif) {
-    const {
-      DateTimeOriginal: { rawValue, hasZone, zoneName },
-    } = exif
+  getDate({ CreateDate, DateTimeOriginal }) {
+    const { rawValue, hasZone, zoneName } = DateTimeOriginal || CreateDate
     const date = moment(rawValue, formatString)
     return hasZone ? date.utcOffset(zoneName) : date
   }
