@@ -1,4 +1,5 @@
 const _ = require('lodash')
+const util = require('util')
 const moment = require('moment')
 const { Transform } = require('stream')
 const { ExifTool } = require('exiftool-vendored')
@@ -11,10 +12,15 @@ module.exports = class ExifReader extends Transform {
     this.exiftool = new ExifTool({ taskTimeoutMillis: 5000 })
   }
 
-  getDate({ CreateDate, DateTimeOriginal }) {
-    const { rawValue, hasZone, zoneName } = DateTimeOriginal || CreateDate
-    const date = moment(rawValue, formatString)
-    return hasZone ? date.utcOffset(zoneName) : date
+  getDate(original) {
+    const { CreateDate, DateTimeOriginal } = original
+    try {
+      const { rawValue, hasZone, zoneName } = DateTimeOriginal || CreateDate
+      const date = moment(rawValue, formatString)
+      return hasZone ? date.utcOffset(zoneName) : date
+    } catch (error) {
+      throw util.format(`error: couldn't find date in metadata\n%o`, original)
+    }
   }
 
   async _transform({ filePath, fileSize, fileTimes }, encoding, callback) {
