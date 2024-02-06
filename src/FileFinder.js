@@ -1,6 +1,6 @@
 const _ = require('lodash')
 const fs = require('fs/promises')
-const { extname, join } = require('path')
+const { extname, basename, join } = require('path')
 const { Readable } = require('stream')
 
 module.exports = class FileFinder extends Readable {
@@ -22,6 +22,17 @@ module.exports = class FileFinder extends Readable {
     return this.extensions.size === 0 || this.extensions.has(ext)
   }
 
+  filenameDoesNotBeginWithDot(filePath) {
+    const filename = basename(filePath)
+    return _.first(filename) !== '.'
+  }
+
+  isRelevantFile(path) {
+    return (
+      this.filenameDoesNotBeginWithDot(path) && this.hasMatchingExtension(path)
+    )
+  }
+
   async _read() {
     while (this.directories.length > 0) {
       const currentPath = this.directories.pop()
@@ -29,7 +40,7 @@ module.exports = class FileFinder extends Readable {
         for await (const entry of await fs.opendir(currentPath)) {
           const path = join(currentPath, entry.name)
           if (entry.isDirectory()) this.directories.push(path)
-          else if (this.hasMatchingExtension(path)) await this.onFileFound(path)
+          else if (this.isRelevantFile(path)) await this.onFileFound(path)
         }
       } catch (err) {
         if (err.code === 'EPERM') console.debug(`Skipping: ${err.path}`)
