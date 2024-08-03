@@ -9,7 +9,7 @@ const formatString = 'YYYY:MM:DD HH:mm:ss'
 module.exports = class ExifReader extends Transform {
   constructor(options = {}) {
     super({ ...options, objectMode: true })
-    this.exiftool = new ExifTool({ taskTimeoutMillis: 5000 })
+    this.exiftool = new ExifTool({ taskTimeoutMillis: 30_000 })
   }
 
   getDate(original) {
