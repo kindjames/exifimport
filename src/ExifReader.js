@@ -1,10 +1,19 @@
-const _ = require('lodash')
-const util = require('util')
-const moment = require('moment')
 const { Transform } = require('stream')
 const { ExifTool } = require('exiftool-vendored')
+const dayjs = require('dayjs')
+const customParseFormat = require('dayjs/plugin/customParseFormat')
+const utc = require('dayjs/plugin/utc')
+
+dayjs.extend(customParseFormat)
+dayjs.extend(utc)
 
 const formatString = 'YYYY:MM:DD HH:mm:ss'
+
+const getMediaType = ({ MIMEType }) => {
+  if (MIMEType?.startsWith('image/')) return 'photo'
+  if (MIMEType?.startsWith('video/')) return 'video'
+  return 'unknown'
+}
 
 module.exports = class ExifReader extends Transform {
   constructor(options = {}) {
@@ -12,15 +21,16 @@ module.exports = class ExifReader extends Transform {
     this.exiftool = new ExifTool({ taskTimeoutMillis: 30_000 })
   }
 
-  getDate(original) {
-    const { CreateDate, DateTimeOriginal } = original
-    try {
-      const { rawValue, hasZone, zoneName } = DateTimeOriginal || CreateDate
-      const date = moment(rawValue, formatString)
-      return hasZone ? date.utcOffset(zoneName) : date
-    } catch (error) {
-      throw util.format(`error: couldn't find date in metadata\n%o`, original)
+  getDate(exif) {
+    const dateTag = exif.DateTimeOriginal || exif.CreateDate
+    if (!dateTag || !dateTag.rawValue) {
+      throw new Error(
+        `couldn't find date in metadata for ${exif.SourceFile || 'unknown file'}`
+      )
     }
+    const { rawValue, hasZone, zoneName } = dateTag
+    const date = dayjs(rawValue, formatString)
+    return hasZone ? date.utcOffset(zoneName) : date
   }
 
   async _transform({ filePath, fileSize, fileTimes }, encoding, callback) {
@@ -31,15 +41,16 @@ module.exports = class ExifReader extends Transform {
         filePath,
         fileTimes,
         filename: exif.FileName,
-        sourcePath: _.get(exif, 'SourceFile'),
+        sourcePath: exif.SourceFile,
         exif,
         date: this.getDate(exif),
-        camera: _.get(exif, 'Model'),
-        lens: _.get(exif, 'LensModel'),
+        mediaType: getMediaType(exif),
+        camera: exif.Model,
+        lens: exif.LensModel,
       })
       callback()
     } catch (err) {
-      callback(err)
+      callback(err instanceof Error ? err : new Error(String(err)))
     }
   }
 
