@@ -1,8 +1,8 @@
 class Exifimport < Formula
   desc "Ingest media from a memory card into an opinionated date-based directory structure"
   homepage "https://github.com/kindjames/exifimport"
-  url "https://github.com/kindjames/exifimport/archive/refs/tags/v0.0.2.tar.gz"
-  sha256 "4d48f91ec0c82fe6a93fe00bcc897aea1c134233d35febb6140306629a2963bc"
+  url "https://github.com/kindjames/exifimport/archive/refs/tags/v0.0.3.tar.gz"
+  sha256 "7166bf36c61e065e16aadded06f8f126d7ea1ede9b7cef4d7c11e055468da3d6"
   license "ISC"
 
   depends_on "node"
