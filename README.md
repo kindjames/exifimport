@@ -1,28 +1,52 @@
 # exifimport
 
-Ingests content from a memory card to an opinionated directory structure
+Ingests media from a memory card into an opinionated date-based directory structure using EXIF metadata.
 
-```sh
-$ exifimport --src kind-sd
+Files are organised as:
 
 ```
+destination/
+  photo/
+    2024/
+      2024-03-15/
+        IMG_1234.jpg
+  video/
+    2024/
+      2024-03-15/
+        MVI_5678.mp4
+```
 
-Can detect if an import may have already occurred.
+## Install
 
-does file exist in destination?
+```sh
+brew tap kindjames/tap
+brew install exifimport
+```
 
-do any files of the same camera (make, model and name? I have two of the same model camera)
+## Usage
 
-# TODO
+```sh
+exifimport --source /Volumes/CARD --destination ~/Pictures
+```
 
-- match --src from name of drives / mount points
-- get list of external drives and display capactity, name, mount point, disk format etc
-- use heuristics to distinguish between memory cards, external hard drives and usb keys
-- add functionality to set and read a destination path from config
-  - give fatal error when not set with command to issue to set
-- add dry Run value
-- add progress bar that uses file size as progress indicator
-- add hueristics to detect if an import has already occurred by seeing if images already exist in the destination directory (yyyy/yyyy-mm-dd) that have the same serial number in exif tags
-- 
+| Flag | Alias | Description | Default |
+|---|---|---|---|
+| `--source` | `-s`, `--src` | Path to search for files | current directory |
+| `--destination` | `-d`, `--dest` | Where files will be transferred | config file value |
+| `--extensions` | | File types to import | all supported types |
+| `--overwrite` | | Overwrite files that already exist | `false` |
 
-How do we know it's an SD Card?
+When a file already exists and `--overwrite` is not set, you will be prompted:
+
+```
+File already exists: IMG_1234.jpg
+[r]eplace, [R]eplace all, [s]kip, [S]kip all, [a]bort:
+```
+
+## Configuration
+
+Create `~/.exifimport.toml` to set defaults:
+
+```toml
+destination = "/Volumes/NAS/Photos"
+```
