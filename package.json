@@ -1,6 +1,6 @@
 {
   "name": "exifimport",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Ingests content from a memory card to an opinionated directory structure",
   "main": "index.js",
   "bin": {
