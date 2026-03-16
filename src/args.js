@@ -29,14 +29,10 @@ module.exports = async () => {
         required: true,
       },
       overwrite: {
-        type: 'bool',
+        type: 'boolean',
         description: 'Overwrite a file if it already exists',
         default: false,
         required: true,
       },
-    })
-    .middleware(async ({ ...argv }) => ({
-      // ...(await )
-      ...argv,
-    })).argv
+    }).argv
 }
