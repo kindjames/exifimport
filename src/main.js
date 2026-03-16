@@ -54,15 +54,20 @@ module.exports = async function main({
     bars.total.update({ totalSizeReadable: filesize(total.data) })
   }
 
+  let fileTransferStart = null
+  let lastFilename = null
+
   function onProgress({ current, fileSize, filename, date }) {
-    bars.total.update({
-      label: date.format('YYYY-MM-DD'),
-      speed: '',
-    })
-    bars.file.update(current, {
-      label: filename,
-      fileSizeReadable: filesize(fileSize),
-    })
+    const now = Date.now()
+    if (filename !== lastFilename) {
+      fileTransferStart = now
+      lastFilename = filename
+    }
+    const elapsed = (now - fileTransferStart) / 1000
+    const speed = elapsed > 0.05 ? filesize(current / elapsed) + '/s' : ''
+
+    bars.total.update({ label: date.format('YYYY-MM-DD'), speed })
+    bars.file.update(current, { label: filename, fileSizeReadable: filesize(fileSize), speed })
     if (current < fileSize) bars.file.setTotal(fileSize)
   }
 
