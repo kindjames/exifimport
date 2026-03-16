@@ -16,6 +16,11 @@ module.exports = async function main({
     files: 0,
     data: 0,
   }
+  const completed = {
+    files: 0,
+    data: 0,
+  }
+  const startTime = Date.now()
   const multibar = new cliProgress.MultiBar(
     {
       clearOnComplete: true,
@@ -71,7 +76,9 @@ module.exports = async function main({
     if (current < fileSize) bars.file.setTotal(fileSize)
   }
 
-  function onFileComplete() {
+  function onFileComplete({ fileSize }) {
+    completed.files += 1
+    completed.data += fileSize
     bars.file.stop()
     bars.total.increment()
   }
@@ -97,5 +104,13 @@ module.exports = async function main({
     new FileWriter(destination, overwrite, { onProgress, onFileComplete, onConflict: overwrite ? undefined : onConflict })
   )
     .catch((err) => console.error('Pipeline failed', err))
-    .finally(() => multibar.stop())
+    .finally(() => {
+      multibar.stop()
+      const elapsedSec = (Date.now() - startTime) / 1000
+      const speed = elapsedSec > 0 ? filesize(completed.data / elapsedSec) + '/s' : '—'
+      const mins = Math.floor(elapsedSec / 60)
+      const secs = Math.round(elapsedSec % 60)
+      const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
+      console.log(`\nFinished copying ${completed.files} files in ${elapsed} (~ ${speed})`)
+    })
 }
