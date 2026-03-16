@@ -1,5 +1,3 @@
-const _ = require('lodash')
-const moment = require('moment')
 const { filesize } = require('filesize')
 const cliProgress = require('cli-progress')
 const { pipeline } = require('stream/promises')
@@ -55,28 +53,27 @@ module.exports = async function main({
     bars.total.update({ totalSizeReadable: filesize(total.data) })
   }
 
-  function onFileChunkWrite(payload) {
-    if (_.isUndefined(payload)) return bars.file.stop() // finished
-    if (_.isError(payload)) throw `fatal: ${payload}` // error
-    const { current, fileSize, filename, date } = payload
-    // const duration = moment.utc(bars.total.startTime)
+  function onProgress({ current, fileSize, filename, date }) {
     bars.total.update({
       label: date.format('YYYY-MM-DD'),
       speed: '',
     })
     bars.file.update(current, {
-      ...payload,
       label: filename,
       fileSizeReadable: filesize(fileSize),
     })
     if (current < fileSize) bars.file.setTotal(fileSize)
-    else bars.total.increment()
+  }
+
+  function onFileComplete() {
+    bars.file.stop()
+    bars.total.increment()
   }
 
   await pipeline(
     new FileFinder(source, extensions, onFileFound),
     new ExifReader(),
-    new FileWriter(destination, overwrite, onFileChunkWrite)
+    new FileWriter(destination, overwrite, { onProgress, onFileComplete })
   )
     .catch((err) => console.error('Pipeline failed', err))
     .finally(() => multibar.stop())
