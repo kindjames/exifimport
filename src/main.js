@@ -1,4 +1,5 @@
 const readline = require('readline')
+const path = require('path')
 const { filesize } = require('filesize')
 const cliProgress = require('cli-progress')
 const { pipeline } = require('stream/promises')
@@ -19,6 +20,10 @@ module.exports = async function main({
   const completed = {
     files: 0,
     data: 0,
+  }
+  const skipped = {
+    identical: [],
+    conflict: [],
   }
   const startTime = Date.now()
   const multibar = new cliProgress.MultiBar(
@@ -83,12 +88,36 @@ module.exports = async function main({
     bars.total.increment()
   }
 
-  function onConflict(filename) {
+  function onSkip({ filename, reason }) {
+    skipped[reason].push(filename)
+  }
+
+  function onConflict({ filename, sourcePath, fileSize, date, camera, lens, destPath, destSize, destModified, contentDiffers }) {
+    const homeDir = process.env.HOME || ''
+    const shorten = (p) => homeDir && p.startsWith(homeDir) ? '~' + p.slice(homeDir.length) : p
+    const srcDir = shorten(path.dirname(sourcePath)) + '/'
+    const dstDir = shorten(path.dirname(destPath)) + '/'
+
+    const rows = [
+      ['path',     srcDir,                                  dstDir],
+      ['size',     filesize(fileSize),                      filesize(destSize)],
+      ['taken',    date ? date.format('YYYY-MM-DD') : '—',  '—'],
+      ['modified', '—',                                     destModified.toISOString().slice(0, 10)],
+      ['camera',   camera || '—',                           '—'],
+      ['lens',     lens || '—',                             '—'],
+    ]
+    if (contentDiffers) rows.push(['match', '⚠ no (may be corrupted)', ''])
+
+    const labelW = Math.max(...rows.map(([l]) => l.length)) + 2
+    const col1W  = Math.max('incoming'.length, ...rows.map(([, c]) => c.length)) + 4
+    const header = ' '.repeat(labelW + 2) + 'incoming'.padEnd(col1W) + 'existing'
+    const lines  = rows.map(([label, c1, c2]) => `  ${label.padEnd(labelW)} ${c1.padEnd(col1W)}${c2}`)
+
     multibar.stop()
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
     return new Promise((resolve) => {
       rl.question(
-        `\nFile already exists: ${filename}\n[r]eplace, [R]eplace all, [s]kip, [S]kip all, [a]bort: `,
+        `\nConflict: ${filename}\n\n${header}\n${lines.join('\n')}\n\n[r]eplace, [R]eplace all, [s]kip, [S]kip all, [a]bort: `,
         (answer) => {
           rl.close()
           const choices = { r: 'replace', R: 'replaceAll', s: 'skip', S: 'skipAll', a: 'abort' }
@@ -101,7 +130,7 @@ module.exports = async function main({
   await pipeline(
     new FileFinder(source, extensions, onFileFound),
     new ExifReader(),
-    new FileWriter(destination, overwrite, { onProgress, onFileComplete, onConflict: overwrite ? undefined : onConflict })
+    new FileWriter(destination, overwrite, { onProgress, onFileComplete, onSkip, onConflict: overwrite ? undefined : onConflict })
   )
     .catch((err) => console.error('Pipeline failed', err))
     .finally(() => {
@@ -111,6 +140,24 @@ module.exports = async function main({
       const mins = Math.floor(elapsedSec / 60)
       const secs = Math.round(elapsedSec % 60)
       const elapsed = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
-      console.log(`\nFinished copying ${completed.files} files in ${elapsed} (~ ${speed})`)
+
+      const formatList = (files) => {
+        const shown = files.slice(0, 5)
+        const extra = files.length - shown.length
+        return shown.join(', ') + (extra > 0 ? ` (+${extra} more)` : '')
+      }
+
+      const lines = []
+      if (completed.files > 0) {
+        lines.push(`Finished copying ${completed.files} files in ${elapsed} (~ ${speed})`)
+      } else {
+        lines.push(`Finished in ${elapsed} — no files copied`)
+      }
+      if (skipped.identical.length > 0)
+        lines.push(`Skipped ${skipped.identical.length} identical files: ${formatList(skipped.identical)}`)
+      if (skipped.conflict.length > 0)
+        lines.push(`Skipped ${skipped.conflict.length} files (already exist): ${formatList(skipped.conflict)}`)
+
+      console.log('\n' + lines.join('\n'))
     })
 }

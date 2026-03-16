@@ -162,16 +162,56 @@ describe('FileWriter', () => {
       await fs.writeFile(expectedPath, 'ORIGINAL')
     }
 
-    it('replace — overwrites this file and calls onConflict with filename and path', async () => {
+    it('replace — overwrites this file and calls onConflict with conflict details', async () => {
       await writeOnce()
       const onConflict = jest.fn().mockResolvedValue('replace')
       await new Promise((resolve) => {
         const writer = new FileWriter(destDir, false, { onConflict })
         writer.write(makeChunk(), null, resolve)
       })
-      expect(onConflict).toHaveBeenCalledWith('photo.jpg', expectedPath)
+      expect(onConflict).toHaveBeenCalledWith(expect.objectContaining({
+        filename: 'photo.jpg',
+        destPath: expectedPath,
+        fileSize: 20,
+        destSize: 8, // 'ORIGINAL' is 8 bytes
+        contentDiffers: null,
+      }))
       const content = await fs.readFile(expectedPath, 'utf8')
       expect(content).toBe('fake image data here')
+    })
+
+    it('auto-skips silently when source and destination are identical', async () => {
+      // Write without tampering so source and dest have identical content
+      const onConflict = jest.fn()
+      await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false)
+        writer.write(makeChunk(), null, resolve)
+      })
+      await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false, { onConflict })
+        writer.write(makeChunk(), null, resolve)
+      })
+      expect(onConflict).not.toHaveBeenCalled()
+      const content = await fs.readFile(expectedPath, 'utf8')
+      expect(content).toBe('fake image data here')
+    })
+
+    it('prompts with contentDiffers=true when sizes match but content differs', async () => {
+      // Write first, then overwrite dest with same-length but different content
+      await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false)
+        writer.write(makeChunk(), null, resolve)
+      })
+      await fs.writeFile(expectedPath, 'XXXXXXXXXXXXXXXXXXXX') // same length (20 bytes), different content
+      const onConflict = jest.fn().mockResolvedValue('skip')
+      await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false, { onConflict })
+        writer.write(makeChunk(), null, resolve)
+      })
+      expect(onConflict).toHaveBeenCalledWith(expect.objectContaining({
+        filename: 'photo.jpg',
+        contentDiffers: true,
+      }))
     })
 
     it('skip — leaves existing file unchanged', async () => {
@@ -217,6 +257,44 @@ describe('FileWriter', () => {
       expect(onConflict).toHaveBeenCalledTimes(1)
       const content = await fs.readFile(expectedPath, 'utf8')
       expect(content).toBe('ORIGINAL')
+    })
+
+    it('calls onSkip with reason "identical" when files are identical', async () => {
+      const onSkip = jest.fn()
+      await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false)
+        writer.write(makeChunk(), null, resolve)
+      })
+      await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false, { onSkip })
+        writer.write(makeChunk(), null, resolve)
+      })
+      expect(onSkip).toHaveBeenCalledWith({ filename: 'photo.jpg', reason: 'identical' })
+    })
+
+    it('calls onSkip with reason "conflict" when user skips', async () => {
+      await writeOnce()
+      const onSkip = jest.fn()
+      const onConflict = jest.fn().mockResolvedValue('skip')
+      await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false, { onConflict, onSkip })
+        writer.write(makeChunk(), null, resolve)
+      })
+      expect(onSkip).toHaveBeenCalledWith({ filename: 'photo.jpg', reason: 'conflict' })
+    })
+
+    it('calls onSkip with reason "conflict" for each file skipped via skipAll', async () => {
+      await writeOnce()
+      const onSkip = jest.fn()
+      const onConflict = jest.fn().mockResolvedValue('skipAll')
+      const writer = new FileWriter(destDir, false, { onConflict, onSkip })
+
+      await new Promise((resolve) => writer.write(makeChunk(), null, resolve))
+      await fs.writeFile(expectedPath, 'ORIGINAL')
+      await new Promise((resolve) => writer.write(makeChunk(), null, resolve))
+
+      expect(onSkip).toHaveBeenCalledTimes(2)
+      expect(onSkip).toHaveBeenCalledWith({ filename: 'photo.jpg', reason: 'conflict' })
     })
 
     it('abort — calls callback with error and stops further writes', async () => {

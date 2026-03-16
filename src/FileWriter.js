@@ -1,17 +1,19 @@
 const { Writable } = require('stream')
 const { createReadStream, createWriteStream } = require('fs')
+const crypto = require('crypto')
 const path = require('path')
 const fs = require('fs/promises')
 const { utimes } = require('utimes')
 
 module.exports = class FileWriter extends Writable {
-  constructor(destination, overwrite, { onProgress, onFileComplete, onConflict } = {}, options = {}) {
+  constructor(destination, overwrite, { onProgress, onFileComplete, onConflict, onSkip } = {}, options = {}) {
     super({ ...options, objectMode: true })
     this.destination = destination
     this.overwrite = overwrite
     this.onProgress = onProgress
     this.onFileComplete = onFileComplete
     this.onConflict = onConflict
+    this.onSkip = onSkip
     this._activeStreams = null
     this._conflictDecision = null // 'replaceAll' | 'skipAll' | 'abort'
   }
@@ -19,28 +21,55 @@ module.exports = class FileWriter extends Writable {
   ensureDirectoryExists = (dirPath) =>
     fs.access(dirPath).catch(() => fs.mkdir(dirPath, { recursive: true }))
 
-  checkCanWriteFile = async (filePath, filename) => {
+  computeChecksum = (filePath) => new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256')
+    const stream = createReadStream(filePath)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.on('end', () => resolve(hash.digest('hex')))
+    stream.on('error', reject)
+  })
+
+  checkCanWriteFile = async (filePath, { filename, sourcePath, fileSize, date, camera, lens }) => {
     if (this.overwrite) return true
+
+    let existingStat
     try {
-      await fs.access(filePath)
+      existingStat = await fs.stat(filePath)
     } catch {
       return true // file doesn't exist, safe to write
     }
 
     // File exists — check for a prior bulk decision
     if (this._conflictDecision === 'replaceAll') return true
-    if (this._conflictDecision === 'skipAll') return false
+    if (this._conflictDecision === 'skipAll') { this.onSkip?.({ filename, reason: 'conflict' }); return false }
     if (this._conflictDecision === 'abort') throw new Error('Aborted by user')
 
-    // No bulk decision — ask the caller
-    if (!this.onConflict) return false // default: skip
+    // Same size — compare checksums to detect identical or corrupted files
+    let contentDiffers = null
+    if (existingStat.size === fileSize) {
+      const [srcHash, dstHash] = await Promise.all([
+        this.computeChecksum(sourcePath),
+        this.computeChecksum(filePath),
+      ])
+      if (srcHash === dstHash) { this.onSkip?.({ filename, reason: 'identical' }); return false }
+      contentDiffers = true // same size, different content — may be corrupted
+    }
 
-    const decision = await this.onConflict(filename, filePath)
+    // No bulk decision — ask the caller
+    if (!this.onConflict) { this.onSkip?.({ filename, reason: 'conflict' }); return false }
+
+    const decision = await this.onConflict({
+      filename, sourcePath, fileSize, date, camera, lens,
+      destPath: filePath,
+      destSize: existingStat.size,
+      destModified: existingStat.mtime,
+      contentDiffers,
+    })
     if (decision === 'replaceAll') { this._conflictDecision = 'replaceAll'; return true }
-    if (decision === 'skipAll') { this._conflictDecision = 'skipAll'; return false }
+    if (decision === 'skipAll') { this._conflictDecision = 'skipAll'; this.onSkip?.({ filename, reason: 'conflict' }); return false }
     if (decision === 'abort') { this._conflictDecision = 'abort'; throw new Error('Aborted by user') }
     if (decision === 'replace') return true
-    return false // 'skip'
+    this.onSkip?.({ filename, reason: 'conflict' }); return false // 'skip'
   }
 
   async _write(
@@ -68,7 +97,7 @@ module.exports = class FileWriter extends Writable {
 
     let canWrite
     try {
-      canWrite = await this.checkCanWriteFile(destinationPath, filename)
+      canWrite = await this.checkCanWriteFile(destinationPath, { filename, sourcePath, fileSize, date, camera, lens })
     } catch (err) {
       callback(err)
       return
