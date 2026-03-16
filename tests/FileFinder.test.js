@@ -39,13 +39,14 @@ describe('FileFinder', () => {
   })
 
   it('should emit correct files while reading directories', (done) => {
+    const finder = new FileFinder(testDir, ['jpg', 'cr2', 'cr3'])
     const emittedFiles = []
 
-    fileFinder.on('data', (data) => {
-      emittedFiles.push(path.basename(data))
+    finder.on('data', (data) => {
+      emittedFiles.push(path.basename(data.filePath))
     })
 
-    fileFinder.on('end', () => {
+    finder.on('end', () => {
       expect(emittedFiles.sort()).toEqual([
         'file2.jpg',
         'file3.jpg',

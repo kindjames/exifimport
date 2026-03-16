@@ -1,4 +1,3 @@
-const _ = require('lodash')
 const fs = require('fs/promises')
 const { extname, basename, join } = require('path')
 const { Readable } = require('stream')
@@ -8,13 +7,8 @@ module.exports = class FileFinder extends Readable {
     super({ ...options, objectMode: true })
     this.directories = [startPath]
     this.extensions = new Set(extensions.map((ext) => `.${ext.toLowerCase()}`))
-    this.onFileFound = async (filePath) => {
-      const { size, atime, birthtime: btime, mtime } = await fs.stat(filePath)
-      const fileTimes = { atime, mtime, btime }
-      const payload = { filePath, fileSize: size, fileTimes }
-      this.push(payload)
-      if (_.isFunction(onFileFound)) await onFileFound(payload)
-    }
+    this._onFileFoundCallback = typeof onFileFound === 'function' ? onFileFound : null
+    this._reading = false
   }
 
   hasMatchingExtension(filePath) {
@@ -23,8 +17,7 @@ module.exports = class FileFinder extends Readable {
   }
 
   filenameDoesNotBeginWithDot(filePath) {
-    const filename = basename(filePath)
-    return _.first(filename) !== '.'
+    return basename(filePath)[0] !== '.'
   }
 
   isRelevantFile(path) {
@@ -34,18 +27,31 @@ module.exports = class FileFinder extends Readable {
   }
 
   async _read() {
-    while (this.directories.length > 0) {
-      const currentPath = this.directories.pop()
-      try {
-        for await (const entry of await fs.opendir(currentPath)) {
-          const path = join(currentPath, entry.name)
-          if (entry.isDirectory()) this.directories.push(path)
-          else if (this.isRelevantFile(path)) await this.onFileFound(path)
+    if (this._reading) return
+    this._reading = true
+    try {
+      while (this.directories.length > 0) {
+        const currentPath = this.directories.pop()
+        try {
+          for await (const entry of await fs.opendir(currentPath)) {
+            const path = join(currentPath, entry.name)
+            if (entry.isDirectory()) this.directories.push(path)
+            else if (this.isRelevantFile(path)) {
+              const { size, atime, birthtime: btime, mtime } = await fs.stat(path)
+              const fileTimes = { atime, mtime, btime }
+              const payload = { filePath: path, fileSize: size, fileTimes }
+              this.push(payload)
+              if (this._onFileFoundCallback) await this._onFileFoundCallback(payload)
+            }
+          }
+        } catch (err) {
+          if (err.code === 'EPERM') console.debug(`Skipping: ${err.path}`)
+          else console.error(err)
         }
-      } catch (err) {
-        if (err.code === 'EPERM') console.debug(`Skipping: ${err.path}`)
-        else console.error(err)
       }
+      this.push(null)
+    } catch (err) {
+      this.destroy(err)
     }
   }
 }
