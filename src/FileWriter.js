@@ -5,26 +5,42 @@ const fs = require('fs/promises')
 const { utimes } = require('utimes')
 
 module.exports = class FileWriter extends Writable {
-  constructor(destination, overwrite, { onProgress, onFileComplete } = {}, options = {}) {
+  constructor(destination, overwrite, { onProgress, onFileComplete, onConflict } = {}, options = {}) {
     super({ ...options, objectMode: true })
     this.destination = destination
     this.overwrite = overwrite
     this.onProgress = onProgress
     this.onFileComplete = onFileComplete
+    this.onConflict = onConflict
     this._activeStreams = null
+    this._conflictDecision = null // 'replaceAll' | 'skipAll' | 'abort'
   }
 
   ensureDirectoryExists = (dirPath) =>
     fs.access(dirPath).catch(() => fs.mkdir(dirPath, { recursive: true }))
 
-  checkCanWriteFile = async (filePath) => {
+  checkCanWriteFile = async (filePath, filename) => {
     if (this.overwrite) return true
     try {
       await fs.access(filePath)
-      return false // file exists, don't overwrite
     } catch {
       return true // file doesn't exist, safe to write
     }
+
+    // File exists — check for a prior bulk decision
+    if (this._conflictDecision === 'replaceAll') return true
+    if (this._conflictDecision === 'skipAll') return false
+    if (this._conflictDecision === 'abort') throw new Error('Aborted by user')
+
+    // No bulk decision — ask the caller
+    if (!this.onConflict) return false // default: skip
+
+    const decision = await this.onConflict(filename, filePath)
+    if (decision === 'replaceAll') { this._conflictDecision = 'replaceAll'; return true }
+    if (decision === 'skipAll') { this._conflictDecision = 'skipAll'; return false }
+    if (decision === 'abort') { this._conflictDecision = 'abort'; throw new Error('Aborted by user') }
+    if (decision === 'replace') return true
+    return false // 'skip'
   }
 
   async _write(
@@ -49,7 +65,15 @@ module.exports = class FileWriter extends Writable {
     )
     const destinationPath = path.join(determinedDestinationDir, filename)
     await this.ensureDirectoryExists(determinedDestinationDir)
-    if (!(await this.checkCanWriteFile(destinationPath))) {
+
+    let canWrite
+    try {
+      canWrite = await this.checkCanWriteFile(destinationPath, filename)
+    } catch (err) {
+      callback(err)
+      return
+    }
+    if (!canWrite) {
       callback()
       return
     }

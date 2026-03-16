@@ -1,3 +1,4 @@
+const readline = require('readline')
 const { filesize } = require('filesize')
 const cliProgress = require('cli-progress')
 const { pipeline } = require('stream/promises')
@@ -70,10 +71,25 @@ module.exports = async function main({
     bars.total.increment()
   }
 
+  function onConflict(filename) {
+    multibar.stop()
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+    return new Promise((resolve) => {
+      rl.question(
+        `\nFile already exists: ${filename}\n[r]eplace, [R]eplace all, [s]kip, [S]kip all, [a]bort: `,
+        (answer) => {
+          rl.close()
+          const choices = { r: 'replace', R: 'replaceAll', s: 'skip', S: 'skipAll', a: 'abort' }
+          resolve(choices[answer] ?? 'skip')
+        }
+      )
+    })
+  }
+
   await pipeline(
     new FileFinder(source, extensions, onFileFound),
     new ExifReader(),
-    new FileWriter(destination, overwrite, { onProgress, onFileComplete })
+    new FileWriter(destination, overwrite, { onProgress, onFileComplete, onConflict: overwrite ? undefined : onConflict })
   )
     .catch((err) => console.error('Pipeline failed', err))
     .finally(() => multibar.stop())

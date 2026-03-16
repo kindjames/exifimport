@@ -149,4 +149,86 @@ describe('FileWriter', () => {
       makeChunk({ sourcePath: path.join(sourceDir, 'nonexistent.jpg') })
     )
   })
+
+  describe('onConflict', () => {
+    const expectedPath = path.join(destDir, 'photo', '2024', '2024-03-15', 'photo.jpg')
+
+    async function writeOnce() {
+      await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false)
+        writer.write(makeChunk(), null, resolve)
+      })
+      // Tamper so we can detect overwrites
+      await fs.writeFile(expectedPath, 'ORIGINAL')
+    }
+
+    it('replace — overwrites this file and calls onConflict with filename and path', async () => {
+      await writeOnce()
+      const onConflict = jest.fn().mockResolvedValue('replace')
+      await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false, { onConflict })
+        writer.write(makeChunk(), null, resolve)
+      })
+      expect(onConflict).toHaveBeenCalledWith('photo.jpg', expectedPath)
+      const content = await fs.readFile(expectedPath, 'utf8')
+      expect(content).toBe('fake image data here')
+    })
+
+    it('skip — leaves existing file unchanged', async () => {
+      await writeOnce()
+      const onConflict = jest.fn().mockResolvedValue('skip')
+      await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false, { onConflict })
+        writer.write(makeChunk(), null, resolve)
+      })
+      const content = await fs.readFile(expectedPath, 'utf8')
+      expect(content).toBe('ORIGINAL')
+    })
+
+    it('replaceAll — overwrites and skips future onConflict calls', async () => {
+      await writeOnce()
+      const onConflict = jest.fn().mockResolvedValue('replaceAll')
+      const writer = new FileWriter(destDir, false, { onConflict })
+
+      // First conflict — should call onConflict and overwrite
+      await new Promise((resolve) => writer.write(makeChunk(), null, resolve))
+      expect(onConflict).toHaveBeenCalledTimes(1)
+
+      // Tamper again
+      await fs.writeFile(expectedPath, 'ORIGINAL2')
+
+      // Second conflict — should NOT call onConflict (bulk decision already set)
+      await new Promise((resolve) => writer.write(makeChunk(), null, resolve))
+      expect(onConflict).toHaveBeenCalledTimes(1)
+      const content = await fs.readFile(expectedPath, 'utf8')
+      expect(content).toBe('fake image data here')
+    })
+
+    it('skipAll — skips and stops calling onConflict for subsequent files', async () => {
+      await writeOnce()
+      const onConflict = jest.fn().mockResolvedValue('skipAll')
+      const writer = new FileWriter(destDir, false, { onConflict })
+
+      await new Promise((resolve) => writer.write(makeChunk(), null, resolve))
+      expect(onConflict).toHaveBeenCalledTimes(1)
+
+      // Second conflict — should NOT call onConflict
+      await new Promise((resolve) => writer.write(makeChunk(), null, resolve))
+      expect(onConflict).toHaveBeenCalledTimes(1)
+      const content = await fs.readFile(expectedPath, 'utf8')
+      expect(content).toBe('ORIGINAL')
+    })
+
+    it('abort — calls callback with error and stops further writes', async () => {
+      await writeOnce()
+      const onConflict = jest.fn().mockResolvedValue('abort')
+      const err = await new Promise((resolve) => {
+        const writer = new FileWriter(destDir, false, { onConflict })
+        writer.on('error', resolve)
+        writer.write(makeChunk())
+      })
+      expect(err).toBeInstanceOf(Error)
+      expect(err.message).toBe('Aborted by user')
+    })
+  })
 })
