@@ -1,6 +1,5 @@
-const loadUserConfig = require('../src/loadUserConfig') // Replace with the actual path
+const loadUserConfig = require('../src/loadUserConfig')
 const fs = require('fs')
-const _ = require('lodash')
 
 jest.mock('fs', () => ({
   promises: {
@@ -24,7 +23,7 @@ describe('loadUserConfig function', () => {
   it('should throw an error for invalid TOML', async () => {
     process.env.HOME = '/some/path'
     fs.promises.readFile.mockResolvedValue('invalid TOML content')
-    await expect(loadUserConfig()).rejects.toMatch(/fatal: could not read/)
+    await expect(loadUserConfig()).rejects.toThrow(/could not read/)
   })
 
   it('should return undefined if the file is not found', async () => {
